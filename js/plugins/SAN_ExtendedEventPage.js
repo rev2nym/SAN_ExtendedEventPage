@@ -1,18 +1,18 @@
 //=============================================================================
 // SAN_ExtendedEventPage.js
 //=============================================================================
-// Copyright (c) 2016 Sanshiro
+// Copyright (c) 2016-2018 Sanshiro
 // Released under the MIT license
 // http://opensource.org/licenses/mit-license.php
 //=============================================================================
+// GitHub  https://github.com/rev2nym
+// Twitter https://twitter.com/rev2nym
+//=============================================================================
 
 /*:
- * @plugindesc 拡張イベントページ制御 ver1.01
+ * @plugindesc 拡張イベントページ制御 ver1.1.0
  * 任意のイベントページの出現条件と出現時処理を設定します。
- * @author サンシロ https://twitter.com/rev2nym
- * @version 1.01 2016/10/27 イベントコマンド「注釈」の有無判定を修正
- * 1.00 2016/10/27 公開
- * 
+ * @author Sanshiro https://twitter.com/rev2nym
  * @help
  * ■概要
  * イベントページの制御を拡張します。
@@ -27,7 +27,7 @@
  *   "handler":"「出現時処理のスクリプト」"
  * }>
  * 
- * "trigger"要素と"onOpen"要素はいずれも省略可能です。
+ * "trigger"要素と"handler"要素はいずれも省略可能です。
  * ただしカンマの有無に注意してください。
  * また記号", <, >は使用できません。
  * 
@@ -53,11 +53,8 @@
  * ■利用規約
  * MITライセンスのもと、商用利用、改変、再配布が可能です。
  * ただし冒頭のコメントは削除や改変をしないでください。
- * よかったらクレジットに作者名を記載してください。
- * 
  * これを利用したことによるいかなる損害にも作者は責任を負いません。
  * サポートは期待しないでください＞＜。
- * 
  */
 
 var Imported = Imported || {};
@@ -65,7 +62,7 @@ Imported.SAN_ExtendedEventPage = true;
 
 var Sanshiro = Sanshiro || {};
 Sanshiro.ExtendedEventPage = Sanshiro.ExtendedEventPage || {};
-Sanshiro.ExtendedEventPage.version = '1.01';
+Sanshiro.ExtendedEventPage.version = '1.1.0';
 
 (function() {
 'use strict';
@@ -76,7 +73,8 @@ Sanshiro.ExtendedEventPage.version = '1.01';
 // イベント
 
 // メンバ変数の初期化
-var _Game_Event_initMembers = Game_Event.prototype.initMembers;
+var _Game_Event_initMembers =
+    Game_Event.prototype.initMembers;
 Game_Event.prototype.initMembers = function() {
     _Game_Event_initMembers.call(this);
     this._exTriggres = []; // 拡張イベントページ出現条件
@@ -84,54 +82,99 @@ Game_Event.prototype.initMembers = function() {
 };
 
 // リフレッシュ
-var _Game_Event_refresh = Game_Event.prototype.refresh;
+var _Game_Event_refresh =
+    Game_Event.prototype.refresh;
 Game_Event.prototype.refresh = function() {
-    this.extractExtendedEventPageParameter();
+    this.setupExtendedEventPage();
     _Game_Event_refresh.call(this);
 };
 
-// 拡張イベントページパラメータの抽出
-Game_Event.prototype.extractExtendedEventPageParameter = function() {
-    this.event().pages.forEach(function(page, pageIndex) {
-        var note = "";
-        var commandIndex = 0;
-        while (!!page.list[commandIndex] && (
-             page.list[commandIndex].code === 108 ||
-             page.list[commandIndex].code === 408))
-        {
-            note += page.list[commandIndex].parameters[0];
-            commandIndex++;
-        }
-        if (note !== "") {
-            var data = { note: note, meta: undefined };
-            DataManager.extractMetadata(data);
-            if (data.meta && data.meta.SAN_ExtendedEventPage) {
-                var json = data.meta.SAN_ExtendedEventPage;
-                var meta = JSON.parse(json);
-                this._exTriggres[pageIndex] = meta.trigger;
-                this._exHandlers[pageIndex] = meta.handler;
+// 拡張イベントページのセットアップ
+Game_Event.prototype.setupExtendedEventPage = function() {
+    this.event().pages.forEach(
+        function(page, pageIndex) {
+            var parameters = this.extractExtendedEventPageParameters(page);
+            if (!parameters) {
+                return;
             }
-        }
-    }, this);
+            if (!!parameters.trigger) {
+                var trigger = new Function('return ' + parameters.trigger);
+                this._exTriggres[pageIndex] = trigger;
+            }
+            if (!!parameters.handler) {
+                var handler = new Function('return ' + parameters.handler);
+                this._exHandlers[pageIndex] = handler;
+            }
+        }, this
+    );
+};
+
+// 拡張イベントページパラメータの抽出
+Game_Event.prototype.extractExtendedEventPageParameters = function(page) {
+    var comment = this.extractPageHeaderComment(page);
+    if (!comment) {
+        return null;
+    }
+    var data = this.extractPageMetadata(comment);
+    if (!data || !data.meta.SAN_ExtendedEventPage) {
+        return null;
+    }
+    var json = data.meta.SAN_ExtendedEventPage;
+    var parameters = JSON.parse(json);
+    return parameters;
+};
+
+// ページ先頭コメントの抽出
+Game_Event.prototype.extractPageHeaderComment = function(page) {
+    var comment = "";
+    var commandIndex = 0;
+    while (this.isCommentCommand(page.list[commandIndex])) {
+        comment += page.list[commandIndex].parameters[0];
+        commandIndex++;
+    }
+    return comment;
+};
+
+// コメントコマンド判定
+Game_Event.prototype.isCommentCommand = function(command) {
+    return !!command && (
+        command.code === 108 ||
+        command.code === 408
+    );
+};
+
+// メタデータの抽出
+Game_Event.prototype.extractPageMetadata = function(note) {
+    var data = {
+        note: note,
+        meta: undefined
+    };
+    DataManager.extractMetadata(data);
+    return data;
 };
 
 // ページ出現条件合致判定
-var _Game_Event_meetsConditions = Game_Event.prototype.meetsConditions;
+var _Game_Event_meetsConditions =
+    Game_Event.prototype.meetsConditions;
 Game_Event.prototype.meetsConditions = function(page) {
     var pageIndex = this.event().pages.indexOf(page);
     var trigger = this._exTriggres[pageIndex];
-    if (trigger) {
-        return !!eval(trigger);
+    if (!!trigger) {
+        return trigger.call(this);
     } else {
         return _Game_Event_meetsConditions.call(this, page);
     }
 };
 
 // イベントページ設定のセットアップ
-var _Game_Event_setupPageSettings = Game_Event.prototype.setupPageSettings;
+var _Game_Event_setupPageSettings =
+    Game_Event.prototype.setupPageSettings;
 Game_Event.prototype.setupPageSettings = function() {
     _Game_Event_setupPageSettings.call(this);
-    eval(this._exHandlers[this._pageIndex]);
+    var handler = this._exHandlers[this._pageIndex];
+    if (!!handler) {
+        handler.call(this);
+    }
 };
 
-})(Sanshiro);
+})();
